@@ -1,0 +1,191 @@
+  // Sending virtual premium gifts
+  const handleSendGift = async (gift: Gift, quantity: number = 1) => {
+    if (!currentUser || !activeRoom) return;
+
+    // Allow sending any gift, but only trigger animation playback if an svgaUrl exists
+    if (!gift.svgaUrl) {
+      console.log("Sending gift without animation link:", gift.name);
+    }
+
+    const targets = selectedRecipientSeatIndices.includes('all') ? ['all'] : selectedRecipientSeatIndices;
+    const totalCostPerTarget = gift.cost * quantity;
+    const overallTotalCost = totalCostPerTarget * targets.length;
+
+    if (currentUser.coins < overallTotalCost) {
+      setCustomNotice({
+        title: 'رصيد غير كافٍ 🪙',
+        message: 'عذراً! ليس لديك رصيد كافٍ من الذهبيات (الكوينز) لإرسال هذه الهدية.'
+      });
+      return;
+    }
+
+    let updatedUser = { ...currentUser };
+    let updatedUsersList = [...(users || [])];
+    
+    // Deduct total coins from sender upfront
+    updatedUser.coins -= overallTotalCost;
+    const totalSenderXpGain = overallTotalCost;
+    updatedUser.xp += totalSenderXpGain;
+    updatedUser.senderXp = (updatedUser.senderXp || 0) + totalSenderXpGain;
+    updatedUser.level = getLevelFromXp(updatedUser.xp);
+
+    const updateSupportersList = (currentSupportersList: any[] | undefined, donorId: string, donorName: string, donorAvatar: string, costValue: number) => {
+      const currentList = currentSupportersList || [];
+      const existingIndex = currentList.findIndex((s: any) => s.userId === donorId);
+      let newList = [...currentList];
+      if (existingIndex !== -1) {
+        newList[existingIndex] = {
+          ...newList[existingIndex],
+          amount: (newList[existingIndex].amount || 0) + costValue,
+          name: donorName,
+          avatar: donorAvatar
+        };
+      } else {
+        newList.push({
+          userId: donorId,
+          name: donorName,
+          avatar: donorAvatar,
+          amount: costValue
+        });
+      }
+      newList.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+      return newList;
+    };
+
+    const senderRef = doc(db, "users", currentUser.id);
+
+    // Process each target
+    for (const target of targets) {
+       let receiverId: string | null = null;
+       let receiverSeatIndex: number | null = null;
+       
+       if (target !== 'all') {
+         const seat = activeRoom?.seats?.[(target as number) - 1];
+         if (seat && seat.userId) {
+           receiverId = seat.userId;
+           receiverSeatIndex = target as number;
+         }
+       }
+
+       // Call server API for persistent, secure transaction
+       fetch('/api/send-gift', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            senderId: currentUser.id,
+            receiverId: receiverId,
+            giftCost: totalCostPerTarget,
+            xpReward: (gift.xpReward || 0) * quantity
+          })
+       }).catch(err => console.error("API error during gift sending:", err));
+
+       let recName = 'المجلس';
+
+       if (receiverId) {
+         if (receiverId === currentUser.id) {
+            // self gifting
+            updatedUser.diamonds = (updatedUser.diamonds || 0) + totalCostPerTarget;
+            updatedUser.charmXp = (updatedUser.charmXp || 0) + totalCostPerTarget;
+            updatedUser.supporters = updateSupportersList(updatedUser.supporters, currentUser.id, currentUser.name, currentUser.avatar, totalCostPerTarget);
+            recName = currentUser.name;
+         } else {
+            const recUser = updatedUsersList.find(u => u.id === receiverId);
+            if (recUser) {
+               recName = recUser.name;
+               let updatedRec = { ...recUser };
+               updatedRec.diamonds = (updatedRec.diamonds || 0) + totalCostPerTarget;
+               updatedRec.charmXp = (updatedRec.charmXp || 0) + totalCostPerTarget;
+               updatedRec.supporters = updateSupportersList(updatedRec.supporters, currentUser.id, currentUser.name, currentUser.avatar, totalCostPerTarget);
+
+               // Handle CP / Friend gifts
+               if (gift.id === 'cp_gift') {
+                 updatedUser.cpPartnerId = receiverId;
+                 updatedUser.cpDays = 1;
+                 updatedRec.cpPartnerId = currentUser.id;
+                 updatedRec.cpDays = 1;
+               } else if (gift.id === 'friend_gift') {
+                 if (!updatedUser.closeFriends) updatedUser.closeFriends = [];
+                 if (!updatedRec.closeFriends) updatedRec.closeFriends = [];
+                 if (!updatedUser.closeFriends.includes(receiverId)) updatedUser.closeFriends.push(receiverId);
+                 if (!updatedRec.closeFriends.includes(currentUser.id)) updatedRec.closeFriends.push(currentUser.id);
+               }
+
+               updatedUsersList = updatedUsersList.map(u => u.id === receiverId ? updatedRec : u);
+
+               // Persist receiver
+               const receiverRef = doc(db, "users", receiverId);
+               updateDoc(receiverRef, {
+                 diamonds: updatedRec.diamonds,
+                 charmXp: updatedRec.charmXp,
+                 xp: updatedRec.xp,
+                 level: updatedRec.level,
+                 supporters: updatedRec.supporters,
+                 cpPartnerId: updatedRec.cpPartnerId || null,
+                 cpDays: updatedRec.cpDays || 0,
+                 closeFriends: updatedRec.closeFriends || []
+               }).catch(err => console.error("Error updating receiver in Firestore:", err));
+            }
+         }
+       }
+
+       const messageText = receiverId && receiverId !== currentUser.id
+         ? `أرسل هدية فاخرة: [ ${gift.arabicName} ] x${quantity} إلى [ ${recName} ]! 🌟`
+         : `أرسل هدية فاخرة: [ ${gift.arabicName} ] x${quantity} للمجلس! 🌟`;
+
+       if (activeRoom?.id) {
+          try {
+            const messagesRef = collection(db, "voice_rooms", activeRoom.id, "chat_messages");
+            const senderSeatIdx = activeRoom?.seats?.findIndex(s => s.userId === currentUser.id);
+            const senderSeatIndexVal = senderSeatIdx !== -1 && senderSeatIdx !== undefined ? senderSeatIdx + 1 : null;
+            const recUserObj = receiverId ? updatedUsersList.find(u => u.id === receiverId) : null;
+            
+            addDoc(messagesRef, {
+              sender: currentUser.name,
+              text: messageText,
+              color: 'text-amber-400 font-extrabold animate-pulse',
+              type: 'chat',
+              giftId: gift.id,
+              giftImageUrl: gift.imageUrl || null,
+              senderSeatIndex: senderSeatIndexVal,
+              receiverSeatIndex: receiverSeatIndex,
+              svgaUrl: gift.svgaUrl || null,
+              giftQuantity: quantity,
+              isPremiumGift: gift.isPremium || false,
+              giftName: gift.arabicName,
+              giftIcon: gift.icon,
+              giftReceiverName: recName,
+              senderAvatar: currentUser.avatar || null,
+              receiverAvatar: recUserObj?.avatar || null,
+              createdAt: new Date().toISOString()
+            });
+          } catch(e) {}
+       } else {
+         setRoomMessages(prev => [
+           ...prev,
+           {
+             sender: currentUser.name,
+             text: messageText,
+             color: 'text-amber-400 font-extrabold animate-pulse',
+             type: 'chat'
+           }
+         ]);
+       }
+    }
+
+    updateDoc(senderRef, {
+       coins: updatedUser.coins,
+       xp: updatedUser.xp,
+       level: updatedUser.level,
+       senderXp: updatedUser.senderXp,
+       diamonds: updatedUser.diamonds || (currentUser.diamonds || 0), 
+       charmXp: updatedUser.charmXp || (currentUser.charmXp || 0), 
+       supporters: updatedUser.supporters || (currentUser.supporters || []), 
+       cpPartnerId: updatedUser.cpPartnerId || currentUser.cpPartnerId || null,
+       cpDays: updatedUser.cpDays || currentUser.cpDays || 0,
+       closeFriends: updatedUser.closeFriends || currentUser.closeFriends || []
+    }).catch(err => console.error("Error updating sender in Firestore:", err));
+
+    updatedUsersList = updatedUsersList.map(u => u.id === currentUser.id ? updatedUser : u);
+    setCurrentUser(updatedUser);
+    setUsers(updatedUsersList);
+  };

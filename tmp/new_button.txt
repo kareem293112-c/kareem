@@ -1,0 +1,10 @@
+                             <button
+                               onClick={() => setPartySubTab('longing')}
+                               className={`flex-1 text-center py-2 text-[10px] font-black rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                                 partySubTab === 'longing'
+                                   ? 'bg-[#FFAE42] text-white shadow-sm'
+                                   : 'text-slate-500 hover:text-slate-800'
+                               }`}
+                             >
+                               <span>مشتاق</span>
+                             </button>

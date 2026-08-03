@@ -1,0 +1,1 @@
+1887:    const isAuthorized = currentUser.name === 'كريم' || currentUser.displayId?.includes('صدى العرب') || currentUser.role === 'admin';
