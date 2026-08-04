@@ -94,7 +94,9 @@ import {
   signOut,
   signInAnonymously,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult
 } from 'firebase/auth';
 
 // استخدام Firebase Firestore للبيانات المباشرة بدلاً من الـ API والـ WebSocket القديم
@@ -2669,6 +2671,22 @@ export default function App() {
   // Listen for Firebase auth state changes
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
+
+    getRedirectResult(auth).then((result) => {
+      if (result?.user) {
+        console.log("Redirect sign-in successful:", result.user.uid);
+        const user = result.user;
+        localStorage.setItem('sada_bound_uid', user.uid);
+        localStorage.setItem('sada_last_login', JSON.stringify({
+          method: 'Google',
+          email: user.email || `user_${user.uid.slice(0,6)}@gmail.com`,
+          avatar: user.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user.uid}`
+        }));
+        setCurrentScreen('explore');
+      }
+    }).catch((err) => {
+      console.warn("Redirect result error:", err);
+    });
 
     const manualUserId = null;
     if (manualUserId) {
@@ -5695,27 +5713,29 @@ export default function App() {
                               if (auth.currentUser) {
                                 await signOut(auth);
                               }
-                              let user;
+                              // On mobile or if popup is blocked, signInWithRedirect is extremely reliable
+                              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                              if (isMobile) {
+                                await signInWithRedirect(auth, provider);
+                                return;
+                              }
                               try {
                                 const result = await signInWithPopup(auth, provider);
-                                user = result.user;
+                                const user = result.user;
+                                localStorage.setItem('sada_bound_uid', user.uid);
+                                localStorage.setItem('sada_last_login', JSON.stringify({
+                                  method: 'Google',
+                                  email: user.email || `user_${user.uid.slice(0,6)}@gmail.com`,
+                                  avatar: user.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user.uid}`
+                                }));
+                                setCurrentScreen('explore');
                               } catch (popupErr: any) {
-                                console.warn("Popup sign-in fallback:", popupErr);
-                                const cred = await signInAnonymously(auth);
-                                user = cred.user;
+                                console.warn("Popup sign-in failed, trying redirect:", popupErr);
+                                await signInWithRedirect(auth, provider);
                               }
-
-                              localStorage.setItem('sada_bound_uid', user.uid);
-                              localStorage.setItem('sada_last_login', JSON.stringify({
-                                method: 'Google',
-                                email: user.email || `user_${user.uid.slice(0,6)}@gmail.com`,
-                                avatar: user.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user.uid}`
-                              }));
-                              setCurrentScreen('explore');
                             } catch (err: any) {
                               console.error("Google Auth Error:", err);
                               setAuthError(`خطأ في تسجيل الدخول بواسطة جوجل: ${err.code || err.message}`);
-                            } finally {
                               setAuthLoading(false);
                             }
                           }}
