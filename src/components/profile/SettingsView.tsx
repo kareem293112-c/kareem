@@ -12,7 +12,11 @@ export default function SettingsView({ onBack, currentUser }: any) {
     }
   }, []);
   const handleLogout = async () => {
-    await signOut(auth);
+    localStorage.removeItem('sada_last_login');
+    localStorage.removeItem('sada_bound_uid');
+    try {
+      await signOut(auth);
+    } catch (e) {}
     window.location.reload();
   };
 

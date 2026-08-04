@@ -5678,7 +5678,7 @@ export default function App() {
                       )}
 
                       {/* Sign-In Button */}
-                      {auth.currentUser || localStorage.getItem('sada_last_login') ? (
+                      {auth.currentUser ? (
                         <button
                           type="button"
                           onClick={() => {

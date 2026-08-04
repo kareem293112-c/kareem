@@ -23,18 +23,18 @@
 
 html, body, #root {
   width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background-color: #03000a;
   color: #f3f4f6;
   font-family: var(--font-sans);
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Smooth mobile scrolling for internal containers */
