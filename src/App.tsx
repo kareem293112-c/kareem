@@ -1891,6 +1891,45 @@ export default function App() {
     currentScreenRef.current = currentScreen;
   }, [currentScreen]);
 
+  // Prevent mobile pull-to-refresh reload when scrolling/pulling at the top
+  useEffect(() => {
+    let startY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        startY = e.touches[0].clientY;
+      }
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        const currentY = e.touches[0].clientY;
+        const deltaY = currentY - startY;
+        if (window.scrollY <= 0 && deltaY > 0) {
+          let target = e.target as HTMLElement | null;
+          let isInsideScrollableAtTop = true;
+          while (target && target !== document.body) {
+            const style = window.getComputedStyle(target);
+            const overflowY = style.overflowY;
+            if ((overflowY === 'auto' || overflowY === 'scroll') && target.scrollTop > 0) {
+              isInsideScrollableAtTop = false;
+              break;
+            }
+            target = target.parentElement;
+          }
+          if (isInsideScrollableAtTop) {
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, []);
+
   // Auto-populate agency owner name and whatsapp based on target user display ID
   useEffect(() => {
     const fetchAndPopulateUser = async () => {
