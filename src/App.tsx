@@ -96,6 +96,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  signInWithCredential,
   getRedirectResult
 } from 'firebase/auth';
 
@@ -2706,6 +2707,49 @@ export default function App() {
     };
   }, [currentUser?.id, currentUser?.role]);
 
+
+  // Listen for native Google Sign-In result coming from the Flutter app (WebView bridge)
+  useEffect(() => {
+    (window as any).onNativeGoogleLoginSuccess = async (data: { email?: string; idToken?: string; accessToken?: string; displayName?: string }) => {
+      setAuthLoading(true);
+      setAuthError('');
+      try {
+        if (!data?.idToken) {
+          throw new Error('missing-id-token');
+        }
+        const credential = GoogleAuthProvider.credential(data.idToken, data.accessToken);
+        if (auth.currentUser) {
+          await signOut(auth);
+        }
+        const result = await signInWithCredential(auth, credential);
+        const user = result.user;
+        localStorage.setItem('sada_bound_uid', user.uid);
+        localStorage.setItem('sada_last_login', JSON.stringify({
+          method: 'Google',
+          email: user.email || data.email || `user_${user.uid.slice(0,6)}@gmail.com`,
+          avatar: user.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user.uid}`
+        }));
+        setCurrentScreen('explore');
+      } catch (err: any) {
+        console.error("Native Google Auth Error:", err);
+        setAuthError(`خطأ في تسجيل الدخول بواسطة جوجل: ${err.code || err.message}`);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    (window as any).onNativeGoogleLoginError = (reason: string) => {
+      setAuthLoading(false);
+      if (reason && reason !== 'cancelled') {
+        setAuthError('حدث خطأ أثناء تسجيل الدخول بواسطة جوجل، حاول مرة أخرى.');
+      }
+    };
+
+    return () => {
+      delete (window as any).onNativeGoogleLoginSuccess;
+      delete (window as any).onNativeGoogleLoginError;
+    };
+  }, []);
 
   // Listen for Firebase auth state changes
   useEffect(() => {
@@ -5748,6 +5792,15 @@ export default function App() {
                             setAuthLoading(true);
                             setAuthError('');
                             try {
+                              // If running inside the Flutter app's WebView, delegate to the native
+                              // Google account picker instead of doing web-based sign-in.
+                              const flutterBridge = (window as any).FlutterNativeAuth;
+                              if (flutterBridge && typeof flutterBridge.postMessage === 'function') {
+                                flutterBridge.postMessage('startGoogleSignIn');
+                                // authLoading stays true until onNativeGoogleLoginSuccess resolves it
+                                return;
+                              }
+
                               const provider = new GoogleAuthProvider();
                               if (auth.currentUser) {
                                 await signOut(auth);
